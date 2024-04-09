@@ -13,6 +13,7 @@
 #include <ranges>
 #include <span>
 #include <vector>
+#include <chrono>
 
 using vec2_t = glm::vec<2, float>;
 using color_t = glm::vec<4, uint8_t>;
@@ -43,10 +44,14 @@ float epsilon = 0.1;
 int32_t ring_count = 1;
 glm::vec<2, int32_t> cursor_pos;
 
+bool equipotential = true, fieldlines = true, fieldcolor = true, arrows = true;
+
 namespace colors
 {
     constexpr color_t red(255, 0, 0, 0), green(0, 255, 0, 0), blue(0, 0, 255, 0), white(255, 255, 255, 0), black(0, 0, 0, 0), yellow(255, 255, 0, 0);
 }
+
+color_t line_color = colors::black;
 
 struct charge_t
 {
@@ -60,8 +65,8 @@ std::ostream& operator<<(std::ostream& outs, vec2_t v)
     return outs;
 }
 
-// std::array<charge_t, 1> charges = {{{{0, 0}, 60}}};
-std::array<charge_t, 2> charges = {{{{-60, 0}, -60}, {{60, 0}, -60}}};
+std::array<charge_t, 1> charges = {{{{0, 0}, 60}}};
+// std::array<charge_t, 2> charges = {{{{-60, 0}, 60}, {{60, 0}, -60}}};
 // std::array<charge_t, 3> charges = {{{{-60, 0}, -20}, {{60, 0}, -20}, {{0, 60}, 20}}};
 
 vec2_t forceAt(vec2_t p)
@@ -80,10 +85,11 @@ vec2_t forceAt(vec2_t p)
     return sum;
 }
 
-void render(std::span<color_t>& pixels, bool equipotential, bool fieldlines, bool fieldcolor, bool arrows)
+void render(std::span<color_t>& pixels)
 {
     auto vecs = std::vector<vec2_t>(deltay * deltax);
     vec2_t max(std::numeric_limits<float>::min()), min(std::numeric_limits<float>::max());
+    std::chrono::high_resolution_clock::time_point t1 = std::chrono::high_resolution_clock::now();
     for (size_t y = 0; y < deltay; y++)
     {
         for (size_t x = 0; x < deltax; x++)
@@ -99,6 +105,7 @@ void render(std::span<color_t>& pixels, bool equipotential, bool fieldlines, boo
             vecs.at(y * deltax + x) = force;
         }
     }
+    std::chrono::high_resolution_clock::time_point t2 = std::chrono::high_resolution_clock::now();
     vec2_t delta = max - min;
     for (size_t pos = 0; pos < deltay * deltax; pos++)
     {
@@ -111,7 +118,7 @@ void render(std::span<color_t>& pixels, bool equipotential, bool fieldlines, boo
         }
         else
         {
-            pixels[pos] = colors::black;
+            pixels[pos] = colors::white;
         }
     }
     if (equipotential)
@@ -153,6 +160,19 @@ void render(std::span<color_t>& pixels, bool equipotential, bool fieldlines, boo
                 for (vec2_t force = forceAt(p); force != vec2_t(0.0f) && !(p.x < xmin || p.x > xmax || p.y < ymin || p.y > ymax) && t < tmax;
                      p += (c.strength > 0 ? 1.0f : -1.0f) * glm::normalize(force), t++)
                 {
+                    if (std::ranges::find_if(
+                            charges,
+                            [=](charge_t c2)
+                            {
+                                if (c.pos != c2.pos)
+                                {
+                                    return glm::distance(c.pos, p) > glm::distance(c2.pos, p);
+                                }
+                                return false;
+                            }) != std::cend(charges))
+                    {
+                        continue;
+                    }
                     size_t pos = static_cast<size_t>(p.y - ymin) * deltax + static_cast<size_t>(p.x - xmin);
                     force = forceAt(p);
                     if (arrows && t == arrow_distance)
@@ -177,14 +197,14 @@ void render(std::span<color_t>& pixels, bool equipotential, bool fieldlines, boo
                             for (int k = 0; k < head_thickness; k++)
                             {
                                 pixels[static_cast<size_t>(p1.y - ymin - k * tangent.y) * deltax + static_cast<size_t>(p1.x - xmin + k * tangent.x)] =
-                                    colors::white;
+                                    line_color;
                                 pixels[static_cast<size_t>(p2.y - ymin - k * tangent.y) * deltax + static_cast<size_t>(p2.x - xmin + k * tangent.x)] =
-                                    colors::white;
+                                    line_color;
                             }
                         }
                         continue;
                     }
-                    pixels[pos] = colors::white;
+                    pixels[pos] = line_color;
                 }
             }
         }
@@ -197,6 +217,9 @@ void render(std::span<color_t>& pixels, bool equipotential, bool fieldlines, boo
             pixels[(c.pos.y + p.y - ymin) * deltax + c.pos.x + p.x - xmin] = c.strength > 0 ? colors::red : colors::blue;
         }
     }
+    std::chrono::high_resolution_clock::time_point t3 = std::chrono::high_resolution_clock::now();
+    ImGui::Text("Physics: %.3f ms/frame", std::chrono::duration_cast<std::chrono::microseconds>(t2-t1).count()/1000.0f);
+    ImGui::Text("Graphics: %.3f ms/frame", std::chrono::duration_cast<std::chrono::microseconds>(t3-t2).count()/1000.0f);
 }
 
 int main(int argc, char** argv)
@@ -233,20 +256,23 @@ int main(int argc, char** argv)
 
     bool rerender = true;
     bool live = false;
-    bool equipotential = true;
-    bool fieldlines = true;
-    bool fieldcolor = true;
-    bool arrows = true;
     while (!quit)
     {
         void* ptr;
         int pitch = sizeof(color_t) * deltax;
 
+        ImGui_ImplSDLRenderer2_NewFrame();
+        ImGui_ImplSDL2_NewFrame();
+        ImGui::NewFrame();
+
+        ImGui::Begin("controls");
+        ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / io.Framerate, io.Framerate);
+
         if (rerender || live)
         {
             SDL_LockTexture(texture, NULL, &ptr, &pitch);
             auto pixels = std::span<color_t>(static_cast<color_t*>(ptr), deltax * deltay);
-            render(pixels, equipotential, fieldlines, fieldcolor, arrows);
+            render(pixels);
             SDL_UnlockTexture(texture);
             rerender = false;
         }
@@ -264,12 +290,6 @@ int main(int argc, char** argv)
                 cursor_pos.y = event.motion.y / PIXEL_SCALE;
             }
         }
-        ImGui_ImplSDLRenderer2_NewFrame();
-        ImGui_ImplSDL2_NewFrame();
-        ImGui::NewFrame();
-
-        ImGui::Begin("controls");
-        ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / io.Framerate, io.Framerate);
         ImGui::Checkbox("Field Lines", &fieldlines);
         if (fieldlines)
         {
@@ -286,9 +306,9 @@ int main(int argc, char** argv)
         ImGui::Checkbox("Equipotential Lines", &equipotential);
         if (equipotential)
         {
-            ImGui::SliderFloat("first ring", &first_ring, 0, 2);
+            ImGui::SliderFloat("first ring", &first_ring, 0, 0.35f);
             ImGui::SliderInt("ring count", &ring_count, 0, 10);
-            ImGui::SliderFloat("epsilon", &epsilon, 0, 0.1);
+            ImGui::SliderFloat("epsilon", &epsilon, 0, 0.1f);
         }
         ImGui::Checkbox("FieldColor", &fieldcolor);
         if (fieldcolor)
@@ -312,7 +332,7 @@ int main(int argc, char** argv)
             int width = deltax, height = deltay;
             SDL_Surface* surface = SDL_CreateRGBSurface(0, width, height, 32, 0x000000FF, 0x0000FF00, 0x00FF0000, 0x00000000);
             auto pixels = std::span<color_t>(static_cast<color_t*>(surface->pixels), deltax * deltay);
-            render(pixels, equipotential, fieldlines, fieldcolor, arrows);
+            render(pixels);
             IMG_SavePNG(surface, "out.png");
             SDL_FreeSurface(surface);
         }
