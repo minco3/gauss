@@ -5,6 +5,7 @@
 #include <SDL.h>
 #include <SDL_image.h>
 #include <algorithm>
+#include <chrono>
 #include <glm/glm.hpp>
 #include <glm/gtc/type_ptr.hpp>
 #include <iostream>
@@ -13,7 +14,6 @@
 #include <ranges>
 #include <span>
 #include <vector>
-#include <chrono>
 
 using vec2_t = glm::vec<2, float>;
 using color_t = glm::vec<4, uint8_t>;
@@ -25,8 +25,8 @@ const constexpr float line_dist = 2;
 
 const constexpr float FLOAT_EPSILON = 0.05;
 
-const constexpr int32_t radius = 150;
-const constexpr int32_t xmin = -radius, xmax = radius, ymin = -radius, ymax = radius, deltax = 2 * radius + 1, deltay = 2 * radius + 1;
+// const constexpr int32_t radius = 150;
+const constexpr int32_t xmin = -150, xmax = 150, ymin = -75, ymax = 75, deltax = 2 * 150 + 1, deltay = 2 * 75 + 1;
 
 // const constexpr int32_t width = 1920;
 // const constexpr int32_t height = 1080;
@@ -40,11 +40,15 @@ int32_t arrow_distance = 50;
 int32_t head_length = 5;
 int32_t head_thickness = 3;
 int32_t tmax = 200;
-float epsilon = 0.1;
+float epsilon = 0.001;
+float equi_scale = 1;
+int32_t num_samples = 1;
+int32_t equipotential_t = 100;
+int32_t equipotential_dist = 20;
 int32_t ring_count = 1;
 glm::vec<2, int32_t> cursor_pos;
 
-bool equipotential = true, fieldlines = true, fieldcolor = true, arrows = true;
+bool equipotential = true, fieldlines = true, fieldcolor = false, arrows = true;
 
 namespace colors
 {
@@ -66,7 +70,7 @@ std::ostream& operator<<(std::ostream& outs, vec2_t v)
 }
 
 std::array<charge_t, 1> charges = {{{{0, 0}, 60}}};
-// std::array<charge_t, 2> charges = {{{{-60, 0}, 60}, {{60, 0}, -60}}};
+// std::array<charge_t, 2> charges = {{{{-60, 0}, -60}, {{60, 0}, -60}}};
 // std::array<charge_t, 3> charges = {{{{-60, 0}, -20}, {{60, 0}, -20}, {{0, 60}, 20}}};
 
 vec2_t forceAt(vec2_t p)
@@ -90,46 +94,68 @@ void render(std::span<color_t>& pixels)
     auto vecs = std::vector<vec2_t>(deltay * deltax);
     vec2_t max(std::numeric_limits<float>::min()), min(std::numeric_limits<float>::max());
     std::chrono::high_resolution_clock::time_point t1 = std::chrono::high_resolution_clock::now();
-    for (size_t y = 0; y < deltay; y++)
-    {
-        for (size_t x = 0; x < deltax; x++)
-        {
-            vec2_t p(static_cast<float>(x) + xmin, static_cast<float>(y) + ymin);
-            if (std::ranges::find_if(charges, [=](charge_t c) { return c.pos == p; }) != std::cend(charges))
-            {
-                continue;
-            }
-            vec2_t force = forceAt(p);
-            min = vec2_t(std::min(min.x, force.x), std::min(min.y, force.y));
-            max = vec2_t(std::max(max.x, force.x), std::max(max.y, force.y));
-            vecs.at(y * deltax + x) = force;
-        }
-    }
+    // for (size_t y = 0; y < deltay; y++)
+    // {
+    //     for (size_t x = 0; x < deltax; x++)
+    //     {
+    //         vec2_t p(static_cast<float>(x) + xmin, static_cast<float>(y) + ymin);
+    //         if (std::ranges::find_if(charges, [=](charge_t c) { return c.pos == p; }) != std::cend(charges))
+    //         {
+    //             continue;
+    //         }
+    //         vec2_t force = forceAt(p);
+    //         min = vec2_t(std::min(min.x, force.x), std::min(min.y, force.y));
+    //         max = vec2_t(std::max(max.x, force.x), std::max(max.y, force.y));
+    //         vecs.at(y * deltax + x) = force;
+    //     }
+    // }
     std::chrono::high_resolution_clock::time_point t2 = std::chrono::high_resolution_clock::now();
     vec2_t delta = max - min;
     for (size_t pos = 0; pos < deltay * deltax; pos++)
     {
-        if (fieldcolor)
-        {
-            color_t color = color_t(
-                0, static_cast<uint8_t>((vecs.at(pos).y - min.y) / delta.y * 255 * scale),
-                static_cast<uint8_t>((vecs.at(pos).x - min.x) / delta.x * 255 * scale), 0);
-            pixels[pos] = color;
-        }
-        else
+        // if (fieldcolor)
+        // {
+        //     color_t color = color_t(
+        //         0, static_cast<uint8_t>((vecs.at(pos).y - min.y) / delta.y * 255 * scale),
+        //         static_cast<uint8_t>((vecs.at(pos).x - min.x) / delta.x * 255 * scale), 0);
+        //     pixels[pos] = color;
+        // }
+        // else
         {
             pixels[pos] = colors::white;
         }
     }
     if (equipotential)
     {
-        for (size_t pos = 0; pos < deltay * deltax; pos++)
+
+        for (charge_t c : charges)
         {
-            for (size_t i = 0; i < ring_count; i++)
+            for (int i = 1; i <= num_samples; i++)
             {
-                if (std::abs(glm::length(vecs.at(pos)) - first_ring * (i + 1)) < epsilon * (i + 1))
+                for (int k = 1; k <= ring_count; k++)
                 {
-                    pixels[pos] = colors::green;
+                    float theta = i * (2 * std::numbers::pi) / num_samples;
+                    vec2_t p = c.pos + static_cast<float>(k * equipotential_dist) * vec2_t(std::cos(theta), std::sin(theta));
+                    vec2_t pp = p;
+                    for (int j = 0; j < equipotential_t; j++)
+                    {
+                        vec2_t force = forceAt(p);
+                        vec2_t p2 = p + glm::normalize(force);
+                        vec2_t tangent = glm::normalize(p2 - p);
+                        vec2_t normal(-tangent.y, tangent.x);
+                        size_t pos = static_cast<size_t>(p.y - ymin) * deltax + static_cast<size_t>(p.x - xmin);
+                        if (pos >= 0 && pos < deltay * deltax)
+                        {
+                            pixels[pos] = colors::green;
+                        }
+                        size_t pos2 = static_cast<size_t>(pp.y - ymin) * deltax + static_cast<size_t>(pp.x - xmin);
+                        if (pos2 >= 0 && pos2 < deltay * deltax)
+                        {
+                            pixels[pos2] = colors::green;
+                        }
+                        p += equi_scale * normal;
+                        pp += equi_scale * vec2_t(normal.x, -normal.y);
+                    }
                 }
             }
         }
@@ -218,8 +244,8 @@ void render(std::span<color_t>& pixels)
         }
     }
     std::chrono::high_resolution_clock::time_point t3 = std::chrono::high_resolution_clock::now();
-    ImGui::Text("Physics: %.3f ms/frame", std::chrono::duration_cast<std::chrono::microseconds>(t2-t1).count()/1000.0f);
-    ImGui::Text("Graphics: %.3f ms/frame", std::chrono::duration_cast<std::chrono::microseconds>(t3-t2).count()/1000.0f);
+    ImGui::Text("Physics: %.3f ms/frame", std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count() / 1000.0f);
+    ImGui::Text("Graphics: %.3f ms/frame", std::chrono::duration_cast<std::chrono::microseconds>(t3 - t2).count() / 1000.0f);
 }
 
 int main(int argc, char** argv)
@@ -308,7 +334,11 @@ int main(int argc, char** argv)
         {
             ImGui::SliderFloat("first ring", &first_ring, 0, 0.35f);
             ImGui::SliderInt("ring count", &ring_count, 0, 10);
+            ImGui::SliderInt("equipotential t", &equipotential_t, 0, 100000);
+            ImGui::SliderFloat("equi_scale", &equi_scale, 0.0f, 1.0f);
+            ImGui::SliderInt("equi_dist", &equipotential_dist, 1, 100);
             ImGui::SliderFloat("epsilon", &epsilon, 0, 0.1f);
+            ImGui::SliderInt("sample count", &num_samples, 1, 100);
         }
         ImGui::Checkbox("FieldColor", &fieldcolor);
         if (fieldcolor)
