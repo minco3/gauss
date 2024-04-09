@@ -3,6 +3,7 @@
 #include "imgui_impl_sdl2.h"
 #include "imgui_impl_sdlrenderer2.h"
 #include <SDL.h>
+#include <SDL_image.h>
 #include <algorithm>
 #include <glm/glm.hpp>
 #include <glm/gtc/type_ptr.hpp>
@@ -17,14 +18,14 @@ using vec2_t = glm::vec<2, float>;
 using color_t = glm::vec<4, uint8_t>;
 
 const constexpr int32_t PIXEL_SCALE = 4;
-int32_t numLines = 2;
+int32_t numLines = 16;
 float scale = 100;
 const constexpr float lineDist = 2;
 
 const constexpr float FLOAT_EPSILON = 0.05;
 
 const constexpr int32_t radius = 120;
-const constexpr int64_t xmin = -radius, xmax = radius, ymin = -radius, ymax = radius, deltax = 2 * radius + 1, deltay = 2 * radius + 1;
+const constexpr int32_t xmin = -radius, xmax = radius, ymin = -radius, ymax = radius, deltax = 2 * radius + 1, deltay = 2 * radius + 1;
 
 // const constexpr int32_t width = 1920;
 // const constexpr int32_t height = 1080;
@@ -33,15 +34,15 @@ const constexpr int64_t xmin = -radius, xmax = radius, ymin = -radius, ymax = ra
 constexpr float e0 = 8.8541878128E-12;
 constexpr float k = 4 * std::numbers::pi * e0;
 
-float first_ring = 10;
-int32_t tmax = 1000;
+float first_ring = 1;
+int32_t tmax = 100;
 float epsilon = 0.1;
 int32_t ring_count = 1;
 glm::vec<2, int32_t> cursor_pos;
 
 namespace colors
 {
-    constexpr color_t red(0, 0, 0, 255), green(0, 255, 0, 255), blue(255, 0, 0, 255), white(255, 255, 255, 255), black(0, 0, 0, 255);
+    constexpr color_t red(255, 0, 0, 0), green(0, 255, 0, 0), blue(0, 0, 255, 0), white(255, 255, 255, 0), black(0, 0, 0, 0);
 }
 
 struct charge_t
@@ -50,7 +51,14 @@ struct charge_t
     float strength;
 };
 
-std::array<charge_t, 2> charges = {{{{-60, 0}, -20}, {{60, 0}, -20}}};
+std::ostream& operator<<(std::ostream& outs, vec2_t v)
+{
+    outs << v.x << " " << v.y;
+    return outs;
+}
+
+// std::array<charge_t, 1> charges = {{{{0, 0}, 60}}};
+std::array<charge_t, 2> charges = {{{{-60, 0}, -60}, {{60, 0}, -60}}};
 // std::array<charge_t, 3> charges = {{{{-60, 0}, -20}, {{60, 0}, -20}, {{0, 60}, 20}}};
 
 vec2_t forceAt(vec2_t p)
@@ -60,16 +68,16 @@ vec2_t forceAt(vec2_t p)
     {
         if (p == c.pos)
         {
-            return vec2_t(0);
+            return vec2_t(0.0f);
         }
         vec2_t r = p - c.pos;
         vec2_t rhat = glm::normalize(r);
-        sum += c.strength / std::pow(glm::length(r) / 100.0f, 2.0f) * rhat;
+        sum += c.strength / std::pow(glm::length(r), 2.0f) * rhat;
     }
     return sum;
 }
 
-void render(std::span<color_t>& pixels, bool equipotential, bool fieldlines)
+void render(std::span<color_t>& pixels, bool equipotential, bool fieldlines, bool fieldcolor)
 {
     auto vecs = std::vector<vec2_t>(deltay * deltax);
     vec2_t max(std::numeric_limits<float>::min()), min(std::numeric_limits<float>::max());
@@ -89,21 +97,37 @@ void render(std::span<color_t>& pixels, bool equipotential, bool fieldlines)
         }
     }
     vec2_t delta = max - min;
-    for (size_t y = 0; y < deltay; y++)
+    for (size_t pos = 0; pos < deltay * deltax; pos++)
     {
-        for (size_t x = 0; x < deltax; x++)
+        if (fieldcolor)
         {
             color_t color = color_t(
-                0, static_cast<uint8_t>((vecs.at(y * deltax + x).y - min.y) / delta.y * 255 * scale),
-                static_cast<uint8_t>((vecs.at(y * deltax + x).x - min.x) / delta.x * 255 * scale), 0);
-            pixels[y * deltax + x] = color;
+                0, static_cast<uint8_t>((vecs.at(pos).y - min.y) / delta.y * 255 * scale),
+                static_cast<uint8_t>((vecs.at(pos).x - min.x) / delta.x * 255 * scale), 0);
+            pixels[pos] = color;
+        }
+        else
+        {
+            pixels[pos] = colors::black;
+        }
+    }
+    if (equipotential)
+    {
+        for (size_t pos = 0; pos < deltay * deltax; pos++)
+        {
+            for (size_t i = 0; i < ring_count; i++)
+            {
+                if (std::abs(glm::length(vecs.at(pos)) - first_ring * (i + 1)) < epsilon * (i+1))
+                {
+                    pixels[pos] = colors::green;
+                }
+            }
         }
     }
     if (fieldlines)
     {
         for (charge_t c : charges)
         {
-            pixels[c.pos.y - ymin * deltax + (c.pos.x - xmin)] = c.strength > 0 ? colors::red : colors::blue;
             for (int i = 1; i <= numLines; i++)
             {
                 float theta = i * (2 * std::numbers::pi) / numLines;
@@ -114,7 +138,7 @@ void render(std::span<color_t>& pixels, bool equipotential, bool fieldlines)
                         {
                             if ((c.pos != c2.pos) && ((c.strength < 0 && c2.strength < 0) || (c.strength > 0 && c2.strength > 0)))
                             {
-                                vec2_t v1 = glm::normalize(p-c.pos), v2 = glm::normalize(c2.pos - c.pos);
+                                vec2_t v1 = glm::normalize(p - c.pos), v2 = glm::normalize(c2.pos - c.pos);
                                 return std::abs(v1.x - v2.x) < FLOAT_EPSILON && std::abs(v1.y - v2.y) < FLOAT_EPSILON;
                             }
                             return false;
@@ -135,20 +159,11 @@ void render(std::span<color_t>& pixels, bool equipotential, bool fieldlines)
             }
         }
     }
-    if (equipotential)
+    for (charge_t c : charges)
     {
-        for (size_t y = 0; y < deltay; y++)
-        {
-            for (size_t x = 0; x < deltax; x++)
-            {
-                for (int i = 0; i < ring_count; i++)
-                {
-                    if (std::abs(glm::length(vecs.at(y * deltax + x)) - first_ring * (i + 1)) < epsilon)
-                    {
-                        pixels[y * deltax + x] = colors::red;
-                    }
-                }
-            }
+        std::array<glm::ivec2, 9> kernel = {{{0,0}, {1,0}, {1,1}, {0,1}, {-1,1}, {-1,0}, {-1,-1}, {0,-1}, {1,-1}}};
+        for (glm::ivec2 p : kernel) {
+            pixels[(c.pos.y + p.y - ymin) * deltax + c.pos.x + p.x - xmin] = c.strength > 0 ? colors::red : colors::blue;
         }
     }
 }
@@ -167,7 +182,7 @@ int main(int argc, char** argv)
 
     SDL_Window* window = SDL_CreateWindow("Gauss' law", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, PIXEL_SCALE * deltax, PIXEL_SCALE * deltay, 0);
 
-    SDL_Renderer* renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_PRESENTVSYNC | SDL_RENDERER_ACCELERATED);
+    SDL_Renderer* renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_TARGETTEXTURE | SDL_RENDERER_PRESENTVSYNC | SDL_RENDERER_ACCELERATED);
 
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO();
@@ -183,12 +198,14 @@ int main(int argc, char** argv)
     ImGui_ImplSDLRenderer2_Init(renderer);
 
     SDL_Surface* image = SDL_CreateRGBSurface(0, deltax, deltay, 32, 0, 0, 0, 0);
-    SDL_Texture* texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_STREAMING, deltax, deltay);
+    SDL_Texture* texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ABGR8888, SDL_TEXTUREACCESS_STREAMING, deltax, deltay);
 
     bool rerender = true;
     bool live = false;
     bool equipotential = true;
     bool fieldlines = true;
+    bool fieldcolor = true;
+    bool save = false;
     while (!quit)
     {
         void* ptr;
@@ -198,9 +215,20 @@ int main(int argc, char** argv)
         {
             SDL_LockTexture(texture, NULL, &ptr, &pitch);
             auto pixels = std::span<color_t>(static_cast<color_t*>(ptr), deltax * deltay);
-            render(pixels, equipotential, fieldlines);
+            render(pixels, equipotential, fieldlines, fieldcolor);
             SDL_UnlockTexture(texture);
             rerender = false;
+        }
+
+        if (save)
+        {
+            int width = deltax, height = deltay;
+            SDL_Surface* surface = SDL_CreateRGBSurface(0, width, height, 32, 0x000000FF, 0x0000FF00, 0x00FF0000, 0x00000000);
+            auto pixels = std::span<color_t>(static_cast<color_t*>(surface->pixels), deltax * deltay);
+            render(pixels, equipotential, fieldlines, fieldcolor);
+            IMG_SavePNG(surface, "out.png");
+            SDL_FreeSurface(surface);
+            save = false;
         }
 
         while (SDL_PollEvent(&event))
@@ -231,12 +259,16 @@ int main(int argc, char** argv)
         ImGui::Checkbox("Equipotential Lines", &equipotential);
         if (equipotential)
         {
-            ImGui::SliderFloat("first ring", &first_ring, 1, 1000);
+            ImGui::SliderFloat("first ring", &first_ring, 0, 2);
             ImGui::SliderInt("ring count", &ring_count, 0, 10);
-            ImGui::SliderFloat("epsilon", &epsilon, 0, 100);
+            ImGui::SliderFloat("epsilon", &epsilon, 0, 1);
         }
-        ImGui::SliderFloat("scale", &scale, 1, 10000);
-        vec2_t force = forceAt(cursor_pos);
+        ImGui::Checkbox("FieldColor", &fieldcolor);
+        if (fieldcolor)
+        {
+            ImGui::SliderFloat("scale", &scale, 1, 10000);
+        }
+        vec2_t force = forceAt(cursor_pos + glm::vec<2, int32_t>(xmin, ymin));
         ImGui::Text(
             "Force under cursor, x:%d, y:%d,\n %.3fi+%.3fj, magnitude:%.3f", cursor_pos.x + xmin, cursor_pos.y + ymin, force.x, force.y, glm::length(force));
         for (auto& c : charges)
@@ -248,6 +280,7 @@ int main(int argc, char** argv)
         }
         rerender = ImGui::Button("Render");
         ImGui::Checkbox("Live Update", &live);
+        save = ImGui::Button("Save to png");
         ImGui::End();
 
         SDL_RenderCopy(renderer, texture, NULL, NULL);

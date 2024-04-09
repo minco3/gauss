@@ -10,8 +10,8 @@ add_subdirectory(imgui)
 
 add_executable(main main.cpp)
 
-# target_link_libraries(main SDL2::SDL2main)
 target_link_libraries(main SDL2::SDL2)
+target_link_libraries(imgui SDL2_Image)
 
 target_link_libraries(main imgui)
 
