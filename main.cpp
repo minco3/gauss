@@ -18,13 +18,13 @@ using vec2_t = glm::vec<2, float>;
 using color_t = glm::vec<4, uint8_t>;
 
 const constexpr int32_t PIXEL_SCALE = 4;
-int32_t numLines = 16;
+int32_t num_lines = 16;
 float scale = 100;
-const constexpr float lineDist = 2;
+const constexpr float line_dist = 2;
 
 const constexpr float FLOAT_EPSILON = 0.05;
 
-const constexpr int32_t radius = 120;
+const constexpr int32_t radius = 150;
 const constexpr int32_t xmin = -radius, xmax = radius, ymin = -radius, ymax = radius, deltax = 2 * radius + 1, deltay = 2 * radius + 1;
 
 // const constexpr int32_t width = 1920;
@@ -35,14 +35,17 @@ constexpr float e0 = 8.8541878128E-12;
 constexpr float k = 4 * std::numbers::pi * e0;
 
 float first_ring = 1;
-int32_t tmax = 100;
+int32_t arrow_distance = 50;
+int32_t head_length = 5;
+int32_t head_thickness = 3;
+int32_t tmax = 200;
 float epsilon = 0.1;
 int32_t ring_count = 1;
 glm::vec<2, int32_t> cursor_pos;
 
 namespace colors
 {
-    constexpr color_t red(255, 0, 0, 0), green(0, 255, 0, 0), blue(0, 0, 255, 0), white(255, 255, 255, 0), black(0, 0, 0, 0);
+    constexpr color_t red(255, 0, 0, 0), green(0, 255, 0, 0), blue(0, 0, 255, 0), white(255, 255, 255, 0), black(0, 0, 0, 0), yellow(255, 255, 0, 0);
 }
 
 struct charge_t
@@ -77,7 +80,7 @@ vec2_t forceAt(vec2_t p)
     return sum;
 }
 
-void render(std::span<color_t>& pixels, bool equipotential, bool fieldlines, bool fieldcolor)
+void render(std::span<color_t>& pixels, bool equipotential, bool fieldlines, bool fieldcolor, bool arrows)
 {
     auto vecs = std::vector<vec2_t>(deltay * deltax);
     vec2_t max(std::numeric_limits<float>::min()), min(std::numeric_limits<float>::max());
@@ -117,7 +120,7 @@ void render(std::span<color_t>& pixels, bool equipotential, bool fieldlines, boo
         {
             for (size_t i = 0; i < ring_count; i++)
             {
-                if (std::abs(glm::length(vecs.at(pos)) - first_ring * (i + 1)) < epsilon * (i+1))
+                if (std::abs(glm::length(vecs.at(pos)) - first_ring * (i + 1)) < epsilon * (i + 1))
                 {
                     pixels[pos] = colors::green;
                 }
@@ -128,10 +131,10 @@ void render(std::span<color_t>& pixels, bool equipotential, bool fieldlines, boo
     {
         for (charge_t c : charges)
         {
-            for (int i = 1; i <= numLines; i++)
+            for (int i = 1; i <= num_lines; i++)
             {
-                float theta = i * (2 * std::numbers::pi) / numLines;
-                vec2_t p = c.pos + lineDist * vec2_t(std::cos(theta), std::sin(theta));
+                float theta = i * (2 * std::numbers::pi) / num_lines;
+                vec2_t p = c.pos + line_dist * vec2_t(std::cos(theta), std::sin(theta));
                 if (std::ranges::find_if(
                         charges,
                         [=](charge_t c2)
@@ -146,23 +149,51 @@ void render(std::span<color_t>& pixels, bool equipotential, bool fieldlines, boo
                 {
                     continue;
                 }
-                vec2_t force = forceAt(p);
                 size_t t = 0;
-                while (force != vec2_t(0.0f) && !(p.x < xmin || p.x > xmax || p.y < ymin || p.y > ymax) && t < tmax)
+                for (vec2_t force = forceAt(p); force != vec2_t(0.0f) && !(p.x < xmin || p.x > xmax || p.y < ymin || p.y > ymax) && t < tmax;
+                     p += (c.strength > 0 ? 1.0f : -1.0f) * glm::normalize(force), t++)
                 {
                     size_t pos = static_cast<size_t>(p.y - ymin) * deltax + static_cast<size_t>(p.x - xmin);
-                    pixels[pos] = colors::white;
                     force = forceAt(p);
-                    p += (c.strength > 0 ? 1.0f : -1.0f) * glm::normalize(force);
-                    t++;
+                    if (arrows && t == arrow_distance)
+                    {
+                        vec2_t p2 = p + glm::normalize(force);
+                        vec2_t tangent = glm::normalize(p2 - p);
+                        float phi = std::atan2(-glm::determinant(glm::mat<2, 2, float>(tangent, vec2_t(1, 0))), -glm::dot(tangent, vec2_t(1, 0))) +
+                                    std::numbers::pi; // atan2(-det, -dot) + pi
+                        float s = std::sin(phi);
+                        float c = std::cos(phi);
+                        glm::mat<2, 2, float> m{c, -s, s, c}; // rotation matrix
+                        // for (int l = 0; l < 20; l++)
+                        // {
+                        //     vec2_t p3 = p + m * vec2_t(0, l);
+                        //     // vec2_t p3 = p + vec2_t(l * std::cos(phi), -l * std::sin(phi));
+                        //     pixels[static_cast<size_t>(p3.y - ymin) * deltax + static_cast<size_t>(p3.x - xmin)] = colors::yellow;
+                        // }
+                        for (int j = 0; j < head_length; j++)
+                        {
+                            vec2_t p1 = p + m * vec2_t(-j, -j), p2 = p + m * vec2_t(-j, +j);
+
+                            for (int k = 0; k < head_thickness; k++)
+                            {
+                                pixels[static_cast<size_t>(p1.y - ymin - k * tangent.y) * deltax + static_cast<size_t>(p1.x - xmin + k * tangent.x)] =
+                                    colors::white;
+                                pixels[static_cast<size_t>(p2.y - ymin - k * tangent.y) * deltax + static_cast<size_t>(p2.x - xmin + k * tangent.x)] =
+                                    colors::white;
+                            }
+                        }
+                        continue;
+                    }
+                    pixels[pos] = colors::white;
                 }
             }
         }
     }
     for (charge_t c : charges)
     {
-        std::array<glm::ivec2, 9> kernel = {{{0,0}, {1,0}, {1,1}, {0,1}, {-1,1}, {-1,0}, {-1,-1}, {0,-1}, {1,-1}}};
-        for (glm::ivec2 p : kernel) {
+        std::array<glm::ivec2, 9> kernel = {{{0, 0}, {1, 0}, {1, 1}, {0, 1}, {-1, 1}, {-1, 0}, {-1, -1}, {0, -1}, {1, -1}}};
+        for (glm::ivec2 p : kernel)
+        {
             pixels[(c.pos.y + p.y - ymin) * deltax + c.pos.x + p.x - xmin] = c.strength > 0 ? colors::red : colors::blue;
         }
     }
@@ -205,7 +236,7 @@ int main(int argc, char** argv)
     bool equipotential = true;
     bool fieldlines = true;
     bool fieldcolor = true;
-    bool save = false;
+    bool arrows = true;
     while (!quit)
     {
         void* ptr;
@@ -215,20 +246,9 @@ int main(int argc, char** argv)
         {
             SDL_LockTexture(texture, NULL, &ptr, &pitch);
             auto pixels = std::span<color_t>(static_cast<color_t*>(ptr), deltax * deltay);
-            render(pixels, equipotential, fieldlines, fieldcolor);
+            render(pixels, equipotential, fieldlines, fieldcolor, arrows);
             SDL_UnlockTexture(texture);
             rerender = false;
-        }
-
-        if (save)
-        {
-            int width = deltax, height = deltay;
-            SDL_Surface* surface = SDL_CreateRGBSurface(0, width, height, 32, 0x000000FF, 0x0000FF00, 0x00FF0000, 0x00000000);
-            auto pixels = std::span<color_t>(static_cast<color_t*>(surface->pixels), deltax * deltay);
-            render(pixels, equipotential, fieldlines, fieldcolor);
-            IMG_SavePNG(surface, "out.png");
-            SDL_FreeSurface(surface);
-            save = false;
         }
 
         while (SDL_PollEvent(&event))
@@ -253,15 +273,22 @@ int main(int argc, char** argv)
         ImGui::Checkbox("Field Lines", &fieldlines);
         if (fieldlines)
         {
-            ImGui::SliderInt("NumLines", &numLines, 0, 32);
+            ImGui::SliderInt("NumLines", &num_lines, 0, 32);
             ImGui::SliderInt("tmax", &tmax, 0, 1000);
+            ImGui::Checkbox("Arrows", &arrows);
+            if (arrows)
+            {
+                ImGui::SliderInt("distance", &arrow_distance, 0, 100);
+                ImGui::SliderInt("head length", &head_length, 0, 10);
+                ImGui::SliderInt("head thickness", &head_thickness, 0, 5);
+            }
         }
         ImGui::Checkbox("Equipotential Lines", &equipotential);
         if (equipotential)
         {
             ImGui::SliderFloat("first ring", &first_ring, 0, 2);
             ImGui::SliderInt("ring count", &ring_count, 0, 10);
-            ImGui::SliderFloat("epsilon", &epsilon, 0, 1);
+            ImGui::SliderFloat("epsilon", &epsilon, 0, 0.1);
         }
         ImGui::Checkbox("FieldColor", &fieldcolor);
         if (fieldcolor)
@@ -280,7 +307,15 @@ int main(int argc, char** argv)
         }
         rerender = ImGui::Button("Render");
         ImGui::Checkbox("Live Update", &live);
-        save = ImGui::Button("Save to png");
+        if (ImGui::Button("Save to png"))
+        {
+            int width = deltax, height = deltay;
+            SDL_Surface* surface = SDL_CreateRGBSurface(0, width, height, 32, 0x000000FF, 0x0000FF00, 0x00FF0000, 0x00000000);
+            auto pixels = std::span<color_t>(static_cast<color_t*>(surface->pixels), deltax * deltay);
+            render(pixels, equipotential, fieldlines, fieldcolor, arrows);
+            IMG_SavePNG(surface, "out.png");
+            SDL_FreeSurface(surface);
+        }
         ImGui::End();
 
         SDL_RenderCopy(renderer, texture, NULL, NULL);
