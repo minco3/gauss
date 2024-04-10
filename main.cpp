@@ -30,7 +30,8 @@ const constexpr int32_t xmin = -150, xmax = 150, ymin = -75, ymax = 75, deltax =
 
 // const constexpr int32_t width = 1920;
 // const constexpr int32_t height = 1080;
-// const constexpr int64_t xmin = -(width / 2), xmax = width / 2, ymin = -(height / 2), ymax = height / 2, deltax = width, deltay = height;
+// const constexpr int64_t xmin = -(width / 2), xmax = width / 2, ymin =
+// -(height / 2), ymax = height / 2, deltax = width, deltay = height;
 
 constexpr float e0 = 8.8541878128E-12;
 constexpr float k = 4 * std::numbers::pi * e0;
@@ -69,9 +70,10 @@ std::ostream& operator<<(std::ostream& outs, vec2_t v)
     return outs;
 }
 
-std::array<charge_t, 1> charges = {{{{0, 0}, 60}}};
-// std::array<charge_t, 2> charges = {{{{-60, 0}, -60}, {{60, 0}, -60}}};
-// std::array<charge_t, 3> charges = {{{{-60, 0}, -20}, {{60, 0}, -20}, {{0, 60}, 20}}};
+// std::array<charge_t, 1> charges = {{{{0, 0}, 60}}};
+std::array<charge_t, 2> charges = {{{{-60, 0}, -60}, {{60, 0}, -60}}};
+// std::array<charge_t, 3> charges = {{{{-60, 0}, -20}, {{60, 0}, -20}, {{0,
+// 60}, 20}}};
 
 vec2_t forceAt(vec2_t p)
 {
@@ -98,8 +100,9 @@ void render(std::span<color_t>& pixels)
     // {
     //     for (size_t x = 0; x < deltax; x++)
     //     {
-    //         vec2_t p(static_cast<float>(x) + xmin, static_cast<float>(y) + ymin);
-    //         if (std::ranges::find_if(charges, [=](charge_t c) { return c.pos == p; }) != std::cend(charges))
+    //         vec2_t p(static_cast<float>(x) + xmin, static_cast<float>(y) +
+    //         ymin); if (std::ranges::find_if(charges, [=](charge_t c) { return
+    //         c.pos == p; }) != std::cend(charges))
     //         {
     //             continue;
     //         }
@@ -116,8 +119,9 @@ void render(std::span<color_t>& pixels)
         // if (fieldcolor)
         // {
         //     color_t color = color_t(
-        //         0, static_cast<uint8_t>((vecs.at(pos).y - min.y) / delta.y * 255 * scale),
-        //         static_cast<uint8_t>((vecs.at(pos).x - min.x) / delta.x * 255 * scale), 0);
+        //         0, static_cast<uint8_t>((vecs.at(pos).y - min.y) / delta.y *
+        //         255 * scale), static_cast<uint8_t>((vecs.at(pos).x - min.x) /
+        //         delta.x * 255 * scale), 0);
         //     pixels[pos] = color;
         // }
         // else
@@ -205,29 +209,48 @@ void render(std::span<color_t>& pixels)
                     {
                         vec2_t p2 = p + glm::normalize(force);
                         vec2_t tangent = glm::normalize(p2 - p);
-                        float phi = std::atan2(-glm::determinant(glm::mat<2, 2, float>(tangent, vec2_t(1, 0))), -glm::dot(tangent, vec2_t(1, 0))) +
-                                    std::numbers::pi; // atan2(-det, -dot) + pi
+                        float phi = static_cast<float>(std::numbers::pi) / 4.0f;
                         float s = std::sin(phi);
                         float c = std::cos(phi);
                         glm::mat<2, 2, float> m{c, -s, s, c}; // rotation matrix
-                        // for (int l = 0; l < 20; l++)
-                        // {
-                        //     vec2_t p3 = p + m * vec2_t(0, l);
-                        //     // vec2_t p3 = p + vec2_t(l * std::cos(phi), -l * std::sin(phi));
-                        //     pixels[static_cast<size_t>(p3.y - ymin) * deltax + static_cast<size_t>(p3.x - xmin)] = colors::yellow;
-                        // }
-                        for (int j = 0; j < head_length; j++)
+                        glm::mat<2, 2, float> m2{c, s, -s, c}; // rotation matrix
+                        for (int t = 0; t < head_thickness; t++)
                         {
-                            vec2_t p1 = p + m * vec2_t(-j, -j), p2 = p + m * vec2_t(-j, +j);
-
-                            for (int k = 0; k < head_thickness; k++)
+                            for (int l = 0; l < head_length; l++)
                             {
-                                pixels[static_cast<size_t>(p1.y - ymin - k * tangent.y) * deltax + static_cast<size_t>(p1.x - xmin + k * tangent.x)] =
-                                    line_color;
-                                pixels[static_cast<size_t>(p2.y - ymin - k * tangent.y) * deltax + static_cast<size_t>(p2.x - xmin + k * tangent.x)] =
-                                    line_color;
+                                vec2_t p3 = p + static_cast<float>(l) * m * tangent + static_cast<float>(t) * tangent;
+                                vec2_t p4 = p + static_cast<float>(l) * m2 * tangent + static_cast<float>(t) * tangent;
+                                pixels[static_cast<size_t>(p3.y - ymin) * deltax + static_cast<size_t>(p3.x - xmin)] = colors::black;
+                                pixels[static_cast<size_t>(p4.y - ymin) * deltax + static_cast<size_t>(p4.x - xmin)] = colors::black;
                             }
                         }
+                        // float phi = std::atan2(-glm::determinant(glm::mat<2,
+                        // 2, float>(tangent, vec2_t(1, 0))), -glm::dot(tangent,
+                        // vec2_t(1, 0))) +
+                        //             std::numbers::pi; // atan2(-det, -dot) +
+                        //             pi
+                        // float s = std::sin(phi);
+                        // float c = std::cos(phi);
+                        // glm::mat<2, 2, float> m{c, -s, s, c}; // rotation
+                        // matrix for (int j = 0; j < head_length; j++)
+                        // {
+                        //     vec2_t p1 = p + m * vec2_t(-j, -j), p2 = p + m *
+                        //     vec2_t(-j, +j);
+
+                        //     for (int k = 0; k < head_thickness; k++)
+                        //     {
+                        //         pixels[static_cast<size_t>(p1.y - ymin - k *
+                        //         tangent.y) * deltax +
+                        //         static_cast<size_t>(p1.x - xmin + k *
+                        //         tangent.x)] =
+                        //             line_color;
+                        //         pixels[static_cast<size_t>(p2.y - ymin - k *
+                        //         tangent.y) * deltax +
+                        //         static_cast<size_t>(p2.x - xmin + k *
+                        //         tangent.x)] =
+                        //             line_color;
+                        //     }
+                        // }
                         continue;
                     }
                     pixels[pos] = line_color;
@@ -267,7 +290,7 @@ int main(int argc, char** argv)
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO();
     (void)io;
-    io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard; // Enable Keyboard Controls
+    io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
 
     // Setup Dear ImGui style
     ImGui::StyleColorsDark();
