@@ -5,7 +5,6 @@
 #include <SDL.h>
 #include <SDL_image.h>
 #include <algorithm>
-#include <chrono>
 #include <glm/glm.hpp>
 #include <glm/gtc/type_ptr.hpp>
 #include <iostream>
@@ -20,7 +19,6 @@ using color_t = glm::vec<4, uint8_t>;
 
 const constexpr int32_t PIXEL_SCALE = 4;
 int32_t num_lines = 16;
-float scale = 100;
 const constexpr float line_dist = 2;
 
 const constexpr float FLOAT_EPSILON = 0.05;
@@ -36,20 +34,17 @@ const constexpr int32_t xmin = -150, xmax = 150, ymin = -75, ymax = 75, deltax =
 constexpr float e0 = 8.8541878128E-12;
 constexpr float k = 4 * std::numbers::pi * e0;
 
-float first_ring = 1;
 int32_t arrow_distance = 50;
 int32_t head_length = 5;
 int32_t head_thickness = 3;
 int32_t tmax = 200;
-float epsilon = 0.001;
-float equi_scale = 1;
-int32_t num_samples = 1;
-int32_t equipotential_t = 100;
+float equi_scale = 0.5f;
+int32_t equipotential_t = 200;
 int32_t equipotential_dist = 20;
-int32_t ring_count = 1;
+int32_t ring_count = 2;
 glm::vec<2, int32_t> cursor_pos;
 
-bool equipotential = true, fieldlines = true, fieldcolor = false, arrows = true;
+bool equipotential = true, fieldlines = true, fieldcolor = false, arrows = true, symmetry = true;
 
 namespace colors
 {
@@ -95,71 +90,36 @@ void render(std::span<color_t>& pixels)
 {
     auto vecs = std::vector<vec2_t>(deltay * deltax);
     vec2_t max(std::numeric_limits<float>::min()), min(std::numeric_limits<float>::max());
-    std::chrono::high_resolution_clock::time_point t1 = std::chrono::high_resolution_clock::now();
-    // for (size_t y = 0; y < deltay; y++)
-    // {
-    //     for (size_t x = 0; x < deltax; x++)
-    //     {
-    //         vec2_t p(static_cast<float>(x) + xmin, static_cast<float>(y) +
-    //         ymin); if (std::ranges::find_if(charges, [=](charge_t c) { return
-    //         c.pos == p; }) != std::cend(charges))
-    //         {
-    //             continue;
-    //         }
-    //         vec2_t force = forceAt(p);
-    //         min = vec2_t(std::min(min.x, force.x), std::min(min.y, force.y));
-    //         max = vec2_t(std::max(max.x, force.x), std::max(max.y, force.y));
-    //         vecs.at(y * deltax + x) = force;
-    //     }
-    // }
-    std::chrono::high_resolution_clock::time_point t2 = std::chrono::high_resolution_clock::now();
     vec2_t delta = max - min;
     for (size_t pos = 0; pos < deltay * deltax; pos++)
     {
-        // if (fieldcolor)
-        // {
-        //     color_t color = color_t(
-        //         0, static_cast<uint8_t>((vecs.at(pos).y - min.y) / delta.y *
-        //         255 * scale), static_cast<uint8_t>((vecs.at(pos).x - min.x) /
-        //         delta.x * 255 * scale), 0);
-        //     pixels[pos] = color;
-        // }
-        // else
-        {
-            pixels[pos] = colors::white;
-        }
+        pixels[pos] = colors::white;
     }
     if (equipotential)
     {
 
         for (charge_t c : charges)
         {
-            for (int i = 1; i <= num_samples; i++)
+            for (int k = 1; k <= ring_count; k++)
             {
-                for (int k = 1; k <= ring_count; k++)
+                vec2_t p = c.pos - (static_cast<float>(k) * equipotential_dist) * glm::normalize(c.pos);
+                for (int j = 0; j < equipotential_t; j++)
                 {
-                    float theta = i * (2 * std::numbers::pi) / num_samples;
-                    vec2_t p = c.pos + static_cast<float>(k * equipotential_dist) * vec2_t(std::cos(theta), std::sin(theta));
-                    vec2_t pp = p;
-                    for (int j = 0; j < equipotential_t; j++)
+                    vec2_t force = forceAt(p);
+                    vec2_t p2 = p + glm::normalize(force);
+                    vec2_t tangent = glm::normalize(p2 - p);
+                    vec2_t normal(-tangent.y, tangent.x);
+                    size_t pos = static_cast<size_t>(p.y - ymin) * deltax + static_cast<size_t>(p.x - xmin);
+                    if (pos >= 0 && pos < deltay * deltax)
                     {
-                        vec2_t force = forceAt(p);
-                        vec2_t p2 = p + glm::normalize(force);
-                        vec2_t tangent = glm::normalize(p2 - p);
-                        vec2_t normal(-tangent.y, tangent.x);
-                        size_t pos = static_cast<size_t>(p.y - ymin) * deltax + static_cast<size_t>(p.x - xmin);
-                        if (pos >= 0 && pos < deltay * deltax)
-                        {
-                            pixels[pos] = colors::green;
-                        }
-                        size_t pos2 = static_cast<size_t>(pp.y - ymin) * deltax + static_cast<size_t>(pp.x - xmin);
-                        if (pos2 >= 0 && pos2 < deltay * deltax)
-                        {
-                            pixels[pos2] = colors::green;
-                        }
-                        p += equi_scale * normal;
-                        pp += equi_scale * vec2_t(normal.x, -normal.y);
+                        pixels[pos] = colors::green;
                     }
+                    size_t pos2 = static_cast<size_t>(-p.y - ymin) * deltax + static_cast<size_t>(p.x - xmin);
+                    if (pos2 >= 0 && pos2 < deltay * deltax)
+                    {
+                        pixels[pos2] = colors::green;
+                    }
+                    p += equi_scale * normal;
                 }
             }
         }
@@ -190,16 +150,16 @@ void render(std::span<color_t>& pixels)
                 for (vec2_t force = forceAt(p); force != vec2_t(0.0f) && !(p.x < xmin || p.x > xmax || p.y < ymin || p.y > ymax) && t < tmax;
                      p += (c.strength > 0 ? 1.0f : -1.0f) * glm::normalize(force), t++)
                 {
-                    if (std::ranges::find_if(
-                            charges,
-                            [=](charge_t c2)
-                            {
-                                if (c.pos != c2.pos)
-                                {
-                                    return glm::distance(c.pos, p) > glm::distance(c2.pos, p);
-                                }
-                                return false;
-                            }) != std::cend(charges))
+                    if (symmetry && std::ranges::find_if(
+                                        charges,
+                                        [=](charge_t c2)
+                                        {
+                                            if (c.pos != c2.pos)
+                                            {
+                                                return glm::distance(c.pos, p) > glm::distance(c2.pos, p);
+                                            }
+                                            return false;
+                                        }) != std::cend(charges))
                     {
                         continue;
                     }
@@ -212,7 +172,7 @@ void render(std::span<color_t>& pixels)
                         float phi = static_cast<float>(std::numbers::pi) / 4.0f;
                         float s = std::sin(phi);
                         float c = std::cos(phi);
-                        glm::mat<2, 2, float> m{c, -s, s, c}; // rotation matrix
+                        glm::mat<2, 2, float> m{c, -s, s, c};  // rotation matrix
                         glm::mat<2, 2, float> m2{c, s, -s, c}; // rotation matrix
                         for (int t = 0; t < head_thickness; t++)
                         {
@@ -224,33 +184,6 @@ void render(std::span<color_t>& pixels)
                                 pixels[static_cast<size_t>(p4.y - ymin) * deltax + static_cast<size_t>(p4.x - xmin)] = colors::black;
                             }
                         }
-                        // float phi = std::atan2(-glm::determinant(glm::mat<2,
-                        // 2, float>(tangent, vec2_t(1, 0))), -glm::dot(tangent,
-                        // vec2_t(1, 0))) +
-                        //             std::numbers::pi; // atan2(-det, -dot) +
-                        //             pi
-                        // float s = std::sin(phi);
-                        // float c = std::cos(phi);
-                        // glm::mat<2, 2, float> m{c, -s, s, c}; // rotation
-                        // matrix for (int j = 0; j < head_length; j++)
-                        // {
-                        //     vec2_t p1 = p + m * vec2_t(-j, -j), p2 = p + m *
-                        //     vec2_t(-j, +j);
-
-                        //     for (int k = 0; k < head_thickness; k++)
-                        //     {
-                        //         pixels[static_cast<size_t>(p1.y - ymin - k *
-                        //         tangent.y) * deltax +
-                        //         static_cast<size_t>(p1.x - xmin + k *
-                        //         tangent.x)] =
-                        //             line_color;
-                        //         pixels[static_cast<size_t>(p2.y - ymin - k *
-                        //         tangent.y) * deltax +
-                        //         static_cast<size_t>(p2.x - xmin + k *
-                        //         tangent.x)] =
-                        //             line_color;
-                        //     }
-                        // }
                         continue;
                     }
                     pixels[pos] = line_color;
@@ -266,9 +199,6 @@ void render(std::span<color_t>& pixels)
             pixels[(c.pos.y + p.y - ymin) * deltax + c.pos.x + p.x - xmin] = c.strength > 0 ? colors::red : colors::blue;
         }
     }
-    std::chrono::high_resolution_clock::time_point t3 = std::chrono::high_resolution_clock::now();
-    ImGui::Text("Physics: %.3f ms/frame", std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count() / 1000.0f);
-    ImGui::Text("Graphics: %.3f ms/frame", std::chrono::duration_cast<std::chrono::microseconds>(t3 - t2).count() / 1000.0f);
 }
 
 int main(int argc, char** argv)
@@ -339,6 +269,7 @@ int main(int argc, char** argv)
                 cursor_pos.y = event.motion.y / PIXEL_SCALE;
             }
         }
+        ImGui::Checkbox("Symmetry", &symmetry);
         ImGui::Checkbox("Field Lines", &fieldlines);
         if (fieldlines)
         {
@@ -355,18 +286,10 @@ int main(int argc, char** argv)
         ImGui::Checkbox("Equipotential Lines", &equipotential);
         if (equipotential)
         {
-            ImGui::SliderFloat("first ring", &first_ring, 0, 0.35f);
             ImGui::SliderInt("ring count", &ring_count, 0, 10);
-            ImGui::SliderInt("equipotential t", &equipotential_t, 0, 100000);
-            ImGui::SliderFloat("equi_scale", &equi_scale, 0.0f, 1.0f);
-            ImGui::SliderInt("equi_dist", &equipotential_dist, 1, 100);
-            ImGui::SliderFloat("epsilon", &epsilon, 0, 0.1f);
-            ImGui::SliderInt("sample count", &num_samples, 1, 100);
-        }
-        ImGui::Checkbox("FieldColor", &fieldcolor);
-        if (fieldcolor)
-        {
-            ImGui::SliderFloat("scale", &scale, 1, 10000);
+            ImGui::SliderInt("equi t", &equipotential_t, 0, 10000);
+            ImGui::SliderFloat("equi scale", &equi_scale, 0.0f, 1.0f);
+            ImGui::SliderInt("equi dist", &equipotential_dist, 1, 100);
         }
         vec2_t force = forceAt(cursor_pos + glm::vec<2, int32_t>(xmin, ymin));
         ImGui::Text(
@@ -374,7 +297,7 @@ int main(int argc, char** argv)
         for (auto& c : charges)
         {
             ImGui::PushID(&c);
-            ImGui::SliderFloat("charge", &c.strength, -100.0f, 100.0f);
+            ImGui::InputFloat("charge", &c.strength, -100.0f, 100.0f);
             ImGui::InputFloat2("position", static_cast<float*>(glm::value_ptr(c.pos)));
             ImGui::PopID();
         }
