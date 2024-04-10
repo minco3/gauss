@@ -17,15 +17,16 @@
 using vec2_t = glm::vec<2, float>;
 using color_t = glm::vec<4, uint8_t>;
 
-const constexpr int32_t PIXEL_SCALE = 4;
 int32_t num_lines = 16;
 const constexpr float line_dist = 2;
 
 const constexpr float FLOAT_EPSILON = 0.05;
 
-// const constexpr int32_t radius = 150;
+const constexpr int32_t PIXEL_SCALE = 4;
+const constexpr int32_t radius = 150;
 const constexpr int32_t xmin = -150, xmax = 150, ymin = -75, ymax = 75, deltax = 2 * 150 + 1, deltay = 2 * 75 + 1;
 
+// const constexpr int32_t PIXEL_SCALE = 1;
 // const constexpr int32_t width = 1920;
 // const constexpr int32_t height = 1080;
 // const constexpr int64_t xmin = -(width / 2), xmax = width / 2, ymin =
@@ -102,7 +103,7 @@ void render(std::span<color_t>& pixels)
         {
             for (int k = 1; k <= ring_count; k++)
             {
-                vec2_t p = c.pos - (static_cast<float>(k) * equipotential_dist) * glm::normalize(c.pos);
+                vec2_t p = c.pos + (static_cast<float>(k) * equipotential_dist) * glm::normalize(c.pos);
                 for (int j = 0; j < equipotential_t; j++)
                 {
                     vec2_t force = forceAt(p);
@@ -110,12 +111,12 @@ void render(std::span<color_t>& pixels)
                     vec2_t tangent = glm::normalize(p2 - p);
                     vec2_t normal(-tangent.y, tangent.x);
                     size_t pos = static_cast<size_t>(p.y - ymin) * deltax + static_cast<size_t>(p.x - xmin);
-                    if (pos >= 0 && pos < deltay * deltax)
+                    if (p.y >= ymin && p.y < ymax && p.x >= xmin && p.x < xmax)
                     {
                         pixels[pos] = colors::green;
                     }
                     size_t pos2 = static_cast<size_t>(-p.y - ymin) * deltax + static_cast<size_t>(p.x - xmin);
-                    if (pos2 >= 0 && pos2 < deltay * deltax)
+                    if (-p.y >= ymin && -p.y < ymax && p.x >= xmin && p.x < xmax)
                     {
                         pixels[pos2] = colors::green;
                     }
