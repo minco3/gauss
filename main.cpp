@@ -24,7 +24,7 @@ const constexpr float FLOAT_EPSILON = 0.05;
 
 const constexpr int32_t PIXEL_SCALE = 4;
 const constexpr int32_t radius = 150;
-const constexpr int32_t xmin = -150, xmax = 150, ymin = -75, ymax = 75, deltax = 2 * 150 + 1, deltay = 2 * 75 + 1;
+const constexpr int32_t xmin = -150, xmax = 150, ymin = -150, ymax = 150, deltax = 2 * 150 + 1, deltay = 2 * 150 + 1;
 
 // const constexpr int32_t PIXEL_SCALE = 1;
 // const constexpr int32_t width = 1920;
@@ -33,7 +33,7 @@ const constexpr int32_t xmin = -150, xmax = 150, ymin = -75, ymax = 75, deltax =
 // -(height / 2), ymax = height / 2, deltax = width, deltay = height;
 
 constexpr float e0 = 8.8541878128E-12;
-constexpr float k = 4 * std::numbers::pi * e0;
+constexpr float k = 1 / (4 * std::numbers::pi * e0);
 
 int32_t arrow_distance = 50;
 int32_t head_length = 5;
@@ -68,8 +68,8 @@ std::ostream& operator<<(std::ostream& outs, vec2_t v)
 
 // std::array<charge_t, 1> charges = {{{{0, 0}, 60}}};
 std::array<charge_t, 2> charges = {{{{-60, 0}, -60}, {{60, 0}, -60}}};
-// std::array<charge_t, 3> charges = {{{{-60, 0}, -20}, {{60, 0}, -20}, {{0,
-// 60}, 20}}};
+// std::array<charge_t, 3> charges = {{{{-60, 0}, -20}, {{60, 0}, -20}, {{0,60}, 20}}};
+// std::array<charge_t, 4> charges = {{{{-60, 0}, -20}, {{60, 0}, -20}, {{0, 60}, 20}, {{0, -60}, 20}}};
 
 vec2_t forceAt(vec2_t p)
 {
@@ -84,7 +84,7 @@ vec2_t forceAt(vec2_t p)
         vec2_t rhat = glm::normalize(r);
         sum += c.strength / std::pow(glm::length(r), 2.0f) * rhat;
     }
-    return sum;
+    return k * sum;
 }
 
 void render(std::span<color_t>& pixels)
@@ -92,7 +92,7 @@ void render(std::span<color_t>& pixels)
     auto vecs = std::vector<vec2_t>(deltay * deltax);
     vec2_t max(std::numeric_limits<float>::min()), min(std::numeric_limits<float>::max());
     vec2_t delta = max - min;
-    for (size_t pos = 0; pos < deltay * deltax; pos++)
+    for (size_t pos = 0; pos < pixels.size(); pos++)
     {
         pixels[pos] = colors::white;
     }
@@ -111,15 +111,16 @@ void render(std::span<color_t>& pixels)
                     vec2_t tangent = glm::normalize(p2 - p);
                     vec2_t normal(-tangent.y, tangent.x);
                     size_t pos = static_cast<size_t>(p.y - ymin) * deltax + static_cast<size_t>(p.x - xmin);
-                    if (p.y >= ymin && p.y < ymax && p.x >= xmin && p.x < xmax)
+                    if (p.y >= ymin && p.y < ymax && p.x >= xmin && p.x < xmax && pos < pixels.size())
                     {
                         pixels[pos] = colors::green;
                     }
-                    size_t pos2 = static_cast<size_t>(-p.y - ymin) * deltax + static_cast<size_t>(p.x - xmin);
-                    if (-p.y >= ymin && -p.y < ymax && p.x >= xmin && p.x < xmax)
-                    {
-                        pixels[pos2] = colors::green;
-                    }
+                    // // If symmetry about x axis:
+                    // size_t pos2 = static_cast<size_t>(-p.y - ymin) * deltax + static_cast<size_t>(p.x - xmin);
+                    // if (-p.y >= ymin && -p.y < ymax && p.x >= xmin && p.x < xmax)
+                    // {
+                    //     pixels[pos2] = colors::green;
+                    // }
                     p += equi_scale * normal;
                 }
             }
@@ -170,7 +171,7 @@ void render(std::span<color_t>& pixels)
                     {
                         vec2_t p2 = p + glm::normalize(force);
                         vec2_t tangent = glm::normalize(p2 - p);
-                        float phi = static_cast<float>(std::numbers::pi) / 4.0f;
+                        float phi = 5.0f * static_cast<float>(std::numbers::pi) / 4.0f;
                         float s = std::sin(phi);
                         float c = std::cos(phi);
                         glm::mat<2, 2, float> m{c, -s, s, c};  // rotation matrix
@@ -181,23 +182,38 @@ void render(std::span<color_t>& pixels)
                             {
                                 vec2_t p3 = p + static_cast<float>(l) * m * tangent + static_cast<float>(t) * tangent;
                                 vec2_t p4 = p + static_cast<float>(l) * m2 * tangent + static_cast<float>(t) * tangent;
-                                pixels[static_cast<size_t>(p3.y - ymin) * deltax + static_cast<size_t>(p3.x - xmin)] = colors::black;
-                                pixels[static_cast<size_t>(p4.y - ymin) * deltax + static_cast<size_t>(p4.x - xmin)] = colors::black;
+                                size_t pos1 = static_cast<size_t>(p3.y - ymin) * deltax + static_cast<size_t>(p3.x - xmin);
+                                if (pos1 < pixels.size())
+                                {
+                                    pixels[pos1] = colors::black;
+                                }
+                                size_t pos2 = static_cast<size_t>(p4.y - ymin) * deltax + static_cast<size_t>(p4.x - xmin);
+                                if (pos < pixels.size())
+                                {
+                                    pixels[pos2] = colors::black;
+                                }
                             }
                         }
                         continue;
                     }
-                    pixels[pos] = line_color;
+                    if (pos < pixels.size())
+                    {
+                        pixels[pos] = line_color;
+                    }
                 }
             }
         }
     }
     for (charge_t c : charges)
     {
-        std::array<glm::ivec2, 9> kernel = {{{0, 0}, {1, 0}, {1, 1}, {0, 1}, {-1, 1}, {-1, 0}, {-1, -1}, {0, -1}, {1, -1}}};
+        const std::array<glm::ivec2, 9> kernel = {{{0, 0}, {1, 0}, {1, 1}, {0, 1}, {-1, 1}, {-1, 0}, {-1, -1}, {0, -1}, {1, -1}}};
         for (glm::ivec2 p : kernel)
         {
-            pixels[(c.pos.y + p.y - ymin) * deltax + c.pos.x + p.x - xmin] = c.strength > 0 ? colors::red : colors::blue;
+            size_t pos = (c.pos.y + p.y - ymin) * deltax + c.pos.x + p.x - xmin;
+            if (pos < pixels.size())
+            {
+                pixels[pos] = c.strength > 0 ? colors::red : colors::blue;
+            }
         }
     }
 }
@@ -223,11 +239,8 @@ int main(int argc, char** argv)
     (void)io;
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
 
-    // Setup Dear ImGui style
     ImGui::StyleColorsDark();
-    // ImGui::StyleColorsLight();
 
-    // Setup Platform/Renderer backends
     ImGui_ImplSDL2_InitForSDLRenderer(window, renderer);
     ImGui_ImplSDLRenderer2_Init(renderer);
 
@@ -235,7 +248,7 @@ int main(int argc, char** argv)
     SDL_Texture* texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ABGR8888, SDL_TEXTUREACCESS_STREAMING, deltax, deltay);
 
     bool rerender = true;
-    bool live = false;
+    bool live = true;
     while (!quit)
     {
         void* ptr;
@@ -270,13 +283,15 @@ int main(int argc, char** argv)
                 cursor_pos.y = event.motion.y / PIXEL_SCALE;
             }
         }
-        ImGui::Checkbox("Symmetry", &symmetry);
-        ImGui::Checkbox("Field Lines", &fieldlines);
+
+        ImGui::Checkbox("Clip force lines", &symmetry);
+        ImGui::SeparatorText("Field Lines");
+        ImGui::Checkbox("Emable Field Lines", &fieldlines);
         if (fieldlines)
         {
             ImGui::SliderInt("NumLines", &num_lines, 0, 32);
             ImGui::SliderInt("tmax", &tmax, 0, 1000);
-            ImGui::Checkbox("Arrows", &arrows);
+            ImGui::Checkbox("Enable Arrows", &arrows);
             if (arrows)
             {
                 ImGui::SliderInt("distance", &arrow_distance, 0, 100);
@@ -284,27 +299,29 @@ int main(int argc, char** argv)
                 ImGui::SliderInt("head thickness", &head_thickness, 0, 5);
             }
         }
-        ImGui::Checkbox("Equipotential Lines", &equipotential);
+        ImGui::SeparatorText("Equipotential Lines");
+        ImGui::Checkbox("Enable Equipotential Lines", &equipotential);
         if (equipotential)
         {
             ImGui::SliderInt("ring count", &ring_count, 0, 10);
-            ImGui::SliderInt("equi t", &equipotential_t, 0, 10000);
+            ImGui::SliderInt("equi tmax", &equipotential_t, 0, 10000);
             ImGui::SliderFloat("equi scale", &equi_scale, 0.0f, 1.0f);
             ImGui::SliderInt("equi dist", &equipotential_dist, 1, 100);
         }
         vec2_t force = forceAt(cursor_pos + glm::vec<2, int32_t>(xmin, ymin));
         ImGui::Text(
-            "Force under cursor, x:%d, y:%d,\n %.3fi+%.3fj, magnitude:%.3f", cursor_pos.x + xmin, cursor_pos.y + ymin, force.x, force.y, glm::length(force));
+            "Force under cursor, x:%d, y:%d,\n %.3fi+%.3fj\n magnitude:%.3f", cursor_pos.x + xmin, cursor_pos.y + ymin, force.x, force.y, glm::length(force));
+        ImGui::SeparatorText("Charges");
         for (auto& c : charges)
         {
             ImGui::PushID(&c);
-            ImGui::InputFloat("charge", &c.strength, -100.0f, 100.0f);
-            ImGui::InputFloat2("position", static_cast<float*>(glm::value_ptr(c.pos)));
+            ImGui::DragFloat("charge", &c.strength, 1.0f, -100.0f, 100.0f);
+            ImGui::DragFloat2("position", static_cast<float*>(glm::value_ptr(c.pos)));
             ImGui::PopID();
         }
         rerender = ImGui::Button("Render");
         ImGui::Checkbox("Live Update", &live);
-        if (ImGui::Button("Save to png"))
+        if (ImGui::Button("Save to .png"))
         {
             int width = deltax, height = deltay;
             SDL_Surface* surface = SDL_CreateRGBSurface(0, width, height, 32, 0x000000FF, 0x0000FF00, 0x00FF0000, 0x00000000);
